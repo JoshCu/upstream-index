@@ -1,36 +1,79 @@
 # upstream-index
-Using the [Nested Set Model](https://en.wikipedia.org/wiki/Nested_set_model) to index flowpaths.
-This technique allows instant (O(1)) lookups for everything upstream of a given flowpath as well as guarenteeing upstream flowpaths are sorted sequentially.
+
+Uses the [Nested Set Model](https://en.wikipedia.org/wiki/Nested_set_model) to assign sequential integer IDs to flowpaths, enabling **O(1) upstream range queries** without any graph traversal or network connectivity data at query time.
+
+The algorithm does a depth-first traversal of the network (preferring the deepest branch at each confluence), assigning each flowpath a unique integer that increases as you move downstream. Because upstream catchments are always assigned contiguous IDs, finding everything upstream of a given flowpath reduces to a single integer range filter.
 
 ## Use cases
-* fast highlighting of upstream flowpaths on map interfaces, _*WITHOUT*_ needing any network traversal, connectivity, or graph information.
-* guarenteing related data is split into _*at most*_ one more chunk than the minimum possible number of chunks required to store the data.
 
-## Does this provide persistent ids that don't update when changes are made to the data?
-Absolutely not! The same code run twice might even produce different results.
-However, this doesn't matter for indexing.
-The map tiles already need recreating when the underlying geometry changes so having to assign new id's is not a problem.
-These should probably be used as an accompaniment to the current flowpath ids rather than replacing them.
+- Fast highlighting of upstream flowpaths in map interfaces — no traversal, no server-side queries, just a range filter on pre-embedded tile properties.
+- Guaranteeing related data splits into *at most* one more chunk than the theoretical minimum when partitioning the network.
 
-### Map highlighting example
-error handling has been removed to keep the example simple.
+## A note on ID stability
+
+These IDs are **not stable**. The same data run twice may produce different assignments, and any change to the underlying network geometry requires a full rebuild. These indices are intended as an accompaniment to the canonical flowpath IDs, not a replacement. Since map tiles already need regenerating when geometry changes, reassigning IDs on rebuild is not a problem in practice.
+
+## How the range filter works
+
+Each flowpath gets two properties embedded in the vector tiles:
+
+| Property | Description |
+|---|---|
+| `upstream_id` | Sequential integer assigned by the nested set traversal |
+| `num_upstreams` | Total count of upstream flowpaths |
+
+To highlight everything upstream of a clicked catchment:
+
 ```javascript
 map.on("click", "divides", (e) => {
-  // get the first item clicked (catchments don't overlap so this should always be the correct item)
-  const clicked_divide = e.features[0];
-  // get the id saved in the map tile 
-  selected_id = clicked_divide.properties.upstream_id;
-  // get the number of upstream catchments saved in the map tile
-  upstream_count = clicked_divide.properties.upstream_count;
-  // set the pink map layer to highlight the clicked divide
+  const clicked = e.features[0];
+  const selected_id = clicked.properties.upstream_id;
+  const upstream_count = clicked.properties.num_upstreams;
+
+  // highlight the clicked catchment
   map.setFilter("selected-divides", ["==", "upstream_id", selected_id]);
-  // set the orange map layer to highlight ALL upstream catchments, excluding the clicked divide
+
+  // highlight all upstream catchments — O(1) range filter, no traversal
   map.setFilter("upstream-divides", [
     "all",
-    [">", "upstream_id", selected_id],
-    // sequential ids mean I can just add two numbers to get the range of upstream catchments
+    [">",  "upstream_id", selected_id],
     ["<=", "upstream_id", selected_id + upstream_count],
     ["!=", "upstream_id", selected_id],
   ]);
 });
 ```
+
+## Data
+
+The build downloads the [CONUS NextGen hydrofabric](https://communityhydrofabric.com/hydrofabrics/community/conus_nextgen.tar.gz) (~large), which contains flowpaths and drainage divides for the contiguous United States. The GeoPackage is in EPSG:5070 (Albers Equal Area) and is reprojected to WGS84 during tile generation.
+
+## Prerequisites
+
+- [Docker](https://docs.docker.com/get-docker/) — the entire build runs inside a multi-stage Docker image
+
+## Building
+
+Builds the vector tiles and upstream index CSV, then copies them out of the container:
+
+```bash
+./build.sh
+```
+
+This produces:
+- `tiles/conus.pmtiles` — PMTiles archive with upstream index properties embedded in each feature
+- `indexing/upstream-idx.csv` — raw CSV mapping `id → upstream_id, num_upstreams`
+
+The build has several stages:
+1. Downloads the CONUS NextGen GeoPackage
+2. Computes upstream indices (`indexing/main.py`)
+3. Converts geometries to FlatGeobuf and builds vector tiles with [Tippecanoe](https://github.com/felt/tippecanoe), filtered by Strahler stream order per zoom level
+4. Joins the index CSV into the tiles with `tile-join`
+5. Converts MBTiles → PMTiles with [go-pmtiles](https://github.com/protomaps/go-pmtiles)
+
+## Running the map
+
+```bash
+./run.sh
+```
+
+Starts a [Bun](https://bun.sh) server at `http://localhost:3000` serving a [MapLibre GL](https://maplibre.org) map. Click any catchment to highlight it (pink) and all of its upstream catchments (orange). Use the "Include outlet" checkbox to extend the selection one step downstream.
