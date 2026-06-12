@@ -32,19 +32,20 @@ def get_network(hf_path: Path) -> (dict, set, dict):
     return network, not_headwaters, inv_network
 
 
-def get_depth(network, headwaters) -> dict:
+def get_depth(network, inv_network) -> dict:
+    indegree = {id: len(inv_network[id]) for id in network}
     depth = defaultdict(int)
-    for headwater in headwaters:
-        depth[headwater] = 0
-        toid = network[headwater]
-        id = headwater
-        while toid is not None:
-            if depth[toid] > depth[id] + 1:
-                break
+    queue = deque(id for id in network if indegree[id] == 0)
+    while queue:
+        id = queue.popleft()
+        toid = network.get(id)
+        if toid is None or toid not in indegree:
+            continue
+        if depth[id] + 1 > depth[toid]:
             depth[toid] = depth[id] + 1
-            id = toid
-            toid = network.get(id, None)
-
+        indegree[toid] -= 1
+        if indegree[toid] == 0:
+            queue.append(toid)
     return depth
 
 
@@ -104,9 +105,8 @@ def get_num_upstreams(network) -> dict:
 if __name__ == "__main__":
     hf = Path("/raw_hf/conus_nextgen.gpkg").expanduser()
     (network, not_headwaters, inv_network) = get_network(hf)
-    headwaters = set(network.keys()) - not_headwaters
     outlets = set(network.values()) - set(network.keys())
-    depths = get_depth(network, headwaters)
+    depths = get_depth(network, inv_network)
     indices = get_upstream_indices(inv_network, depths, outlets, network)
     num_upstreams = get_num_upstreams(network)
     ups = Path("num_upstreams.json")
@@ -114,10 +114,7 @@ if __name__ == "__main__":
     # idx.write_text(json.dumps(indices))
     # ups.write_text(json.dumps(num_upstreams))
     csv_output = Path("upstream-idx.csv")
-    string = "id, upstream_id, num_upstreams\n"
-    for id, upstream_id in indices.items():
-        id = int(id)
-        upstream_id = int(upstream_id)
-        upstream_count = num_upstreams[id]
-        string += f"{id}, {upstream_id}, {upstream_count}\n"
-    csv_output.write_text(string)
+    with csv_output.open("w") as f:
+        f.write("id, upstream_id, num_upstreams\n")
+        for id, upstream_id in indices.items():
+            f.write(f"{int(id)}, {int(upstream_id)}, {num_upstreams[id]}\n")
