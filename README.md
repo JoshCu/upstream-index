@@ -43,6 +43,50 @@ map.on("click", "divides", (e) => {
 });
 ```
 
+## How IDs are assigned
+
+Starting from each outlet, the algorithm walks the network upstream using a depth-first traversal. At every confluence it always follows the longest upstream branch first (measured as the longest chain of flowpaths back to a headwater). Each flowpath is assigned the next available integer as it is first visited.
+
+Because the longest branch is always fully explored before any shorter tributary, every upstream flowpath ends up with an ID in an unbroken range immediately above the outlet's ID. That's what makes the range filter possible.
+
+A small example — flow goes left-to-right, letters are flowpath names, numbers in parentheses are the assigned IDs:
+
+```
+headwaters                              outlet
+F(3) ───── D(2) ───┐
+        E(4) ──────┼── B(1) ── A(0)
+        C(5) ──────┘
+```
+
+Traversal order starting at outlet `A`:
+```
+visit A → id 0   (upstreams: B)
+visit B → id 1   (upstreams: D, E, C — pick D, longest branch since D has F upstream)
+visit D → id 2   (upstreams: F)
+visit F → id 3   (headwater, backtrack to D, then B)
+visit E → id 4   (headwater, backtrack to B)
+visit C → id 5   (headwater, backtrack to B, then A — done)
+```
+
+Now `A` has `upstream_id=0, num_upstreams=5`. The filter `upstream_id > 0 AND upstream_id <= 5` returns exactly `{B, D, F, E, C}` — no traversal required.
+
+```python
+# assign IDs with a depth-first traversal, longest branch first
+id_counter = 0
+
+def visit(node):
+    global id_counter
+    upstream_id[node] = id_counter
+    id_counter += 1
+
+    # sort upstream neighbors by depth descending (longest branch first)
+    for upstream in sorted(neighbors[node], key=lambda n: depth[n], reverse=True):
+        visit(upstream)
+
+for outlet in outlets:
+    visit(outlet)
+```
+
 ## Data
 
 The build downloads the [CONUS NextGen hydrofabric](https://communityhydrofabric.com/hydrofabrics/community/conus_nextgen.tar.gz) (~large), which contains flowpaths and drainage divides for the contiguous United States. The GeoPackage is in EPSG:5070 (Albers Equal Area) and is reprojected to WGS84 during tile generation.
