@@ -1,14 +1,6 @@
 FROM ubuntu AS base
 RUN apt update && apt install -y nala
-
-FROM base AS download_fabrics
-WORKDIR /raw_hf
-COPY --from=local_copy conus_nextgen.gpkg /raw_hf/
-
-FROM base AS install_tools
-# Install all the required tools
-# protomaps, tippecanoe, gdal
-RUN nala install -y build-essential libsqlite3-dev zlib1g-dev wget gdal-bin git
+RUN nala install -y build-essential libsqlite3-dev zlib1g-dev wget gdal-bin git python3-pip libsqlite3-mod-spatialite sqlite3
 
 WORKDIR /tippecanoe
 RUN git clone --single-branch --depth=1 https://github.com/felt/tippecanoe.git \
@@ -21,18 +13,17 @@ ADD https://github.com/protomaps/go-pmtiles/releases/download/v1.30.3/go-pmtiles
 RUN tar -xvf pmtiles.tar.gz
 RUN mv pmtiles /usr/local/bin
 
-FROM install_tools AS hydrolocations_to_geom
-RUN nala install -y python3-pip libsqlite3-mod-spatialite
-RUN nala install -y sqlite3
+FROM base AS hf_download
+ADD --unpack https://communityhydrofabric.com/hydrofabrics/community/conus_nextgen.tar.gz /raw_hf/
 
-COPY --from=download_fabrics /raw_hf /raw_hf
-WORKDIR /hydrolocations_to_geom
-COPY *.py .
-COPY *.sql .
+FROM hf_download AS upstream_indexing
+WORKDIR /indexing
+COPY indexing/main.py .
+RUN python3 main.py
 
-FROM hydrolocations_to_geom AS conus_to_geojson
+FROM hf_download AS conus_to_mbtiles
 # conus EPSG:5070
-WORKDIR /geojson/conus
+WORKDIR /fgb/conus
 # disable spatial index to stop the UPDATEs below triggering spatial index rebuilds
 RUN ogrinfo /raw_hf/conus_nextgen.gpkg -sql "SELECT DisableSpatialIndex('flowpaths','geom')"
 RUN ogrinfo /raw_hf/conus_nextgen.gpkg -sql "SELECT DisableSpatialIndex('divides','geom')"
@@ -45,8 +36,6 @@ RUN sqlite3 /raw_hf/conus_nextgen.gpkg "UPDATE divides SET divide_id = CAST(subs
 RUN ogr2ogr -s_srs EPSG:5070 -t_srs CRS:84 flowpaths.fgb /raw_hf/conus_nextgen.gpkg flowpaths
 RUN ogr2ogr -s_srs EPSG:5070 -t_srs CRS:84 divides.fgb /raw_hf/conus_nextgen.gpkg divides
 RUN ogr2ogr -s_srs EPSG:5070 -t_srs CRS:84 hydrolocations.fgb /raw_hf/conus_nextgen.gpkg hydrolocations
-
-FROM conus_to_geojson AS conus_to_mbtiles
 
 # create a filter to control tile zoom levels and geometry density
 # the geometry must match ANY of the following conditions
@@ -92,17 +81,24 @@ RUN tippecanoe -z10 -Z4 -o divides.mbtiles \
     -aI  \
     divides.fgb -P
 
-
 # RUN tippecanoe -z10 -Z2 -r1 --cluster-distance=5 -o hydrolocations.mbtiles -l conus_hydrolocations hydrolocations.fgb -P
 # RUN tippecanoe -z10 -Z3 -r1 -j '{ "*": [ "any", [ "==", "hl_reference", "gages" ]] }' -o gages.mbtiles -l conus_gages hydrolocations.fgb -P
-COPY upstream-idx.csv .
+COPY --from=upstream_indexing ./indexing/upstream-idx.csv .
 RUN tile-join -pk -c upstream-idx.csv -o conus.mbtiles flowpaths.mbtiles divides.mbtiles
 #hydrolocations.mbtiles gages.mbtiles
 
-FROM install_tools AS merge_mbtiles
+FROM base AS join_tiles
+
 WORKDIR /mbtiles/merged
-COPY --from=conus_to_mbtiles /geojson/conus/conus.mbtiles .
+COPY --from=conus_to_mbtiles /fgb/conus/conus.mbtiles .
 RUN pmtiles convert --no-deduplication conus.mbtiles conus.pmtiles
 
-#tippecanoe -z6 -o vpu.mbtiles --coalesce-densest-as-needed --force -P vpu.geojson
-#tippecanoe -z10 -Z7 -o flowpaths.mbtiles --coalesce-densest-as-needed --extend-zooms-if-still-dropping flowpaths.geojson --force -P
+FROM oven/bun:1 AS server
+WORKDIR /usr/src/app
+COPY map ./map
+# only copying this so build.sh can copy it to a local folder outside of the container
+COPY --from=upstream_indexing ./indexing/upstream-idx.csv /indexing/upstream-idx.csv
+COPY --from=join_tiles /mbtiles/merged/conus.pmtiles ./tiles/conus.pmtiles
+USER bun
+EXPOSE 3000/tcp
+ENTRYPOINT [ "bun", "run", "./map/server.ts" ]

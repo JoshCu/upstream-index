@@ -102,7 +102,7 @@ def get_num_upstreams(network) -> dict:
 
 
 if __name__ == "__main__":
-    hf = Path("~/.ngiab/hydrofabric/v2.2/conus_nextgen.gpkg").expanduser()
+    hf = Path("/raw_hf/conus_nextgen.gpkg").expanduser()
     (network, not_headwaters, inv_network) = get_network(hf)
     headwaters = set(network.keys()) - not_headwaters
     outlets = set(network.values()) - set(network.keys())

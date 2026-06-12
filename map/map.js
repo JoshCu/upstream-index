@@ -1,0 +1,183 @@
+let map = null;
+let catId = null;
+let nexId = null;
+let selected_id = null;
+let selected_num_upstreams = null;
+let outlet_id = null;
+let outlet_num_upstreams = null;
+
+function queryFlowpath(flowpathID) {
+  if (!map.loaded()) return;
+  const features = map.querySourceFeatures("conus", {
+    sourceLayer: ["flowpaths"],
+    filter: ["==", "id", flowpathID],
+  });
+  return features[0];
+}
+
+function initMap() {
+  const protocol = new pmtiles.Protocol({ metadata: true });
+  maplibregl.addProtocol("pmtiles", protocol.tile);
+  map = new maplibregl.Map({
+    container: "map",
+    style: "https://tiles.openfreemap.org/styles/liberty",
+    center: [-96, 40],
+    zoom: 4,
+  });
+
+  map.once("styledata", () => {
+    if (map.getSource("conus")) return;
+    const layers = map.getStyle().layers;
+    let firstSymbolId;
+    for (let i = 0; i < layers.length; i++) {
+      if (layers[i].type === "symbol") {
+        firstSymbolId = layers[i].id;
+        break;
+      }
+    }
+    map.addSource("conus", {
+      type: "vector",
+      url: "pmtiles://conus.pmtiles",
+    });
+    map.addLayer(
+      {
+        id: "divides",
+        type: "fill",
+        source: "conus",
+        "source-layer": "divides",
+        paint: {
+          "fill-color": "rgba(0, 0, 0, 0)",
+          "fill-outline-color": [
+            "interpolate",
+            ["linear"],
+            ["zoom"],
+            6,
+            "rgba(1, 1, 1, 0)",
+            7,
+            "rgba(1, 1, 1, 0.5)",
+          ],
+        },
+      },
+      firstSymbolId,
+    );
+    map.addLayer(
+      {
+        id: "selected-divides",
+        type: "fill",
+        source: "conus",
+        "source-layer": "divides",
+        paint: {
+          "fill-color": "rgba(238, 51, 119, 0.316)",
+          "fill-outline-color": "rgba(238, 51, 119, 0.7)",
+        },
+        filter: ["in", "divide_id", ""],
+      },
+      firstSymbolId,
+    );
+    map.addLayer(
+      {
+        id: "upstream-divides",
+        type: "fill",
+        source: "conus",
+        "source-layer": "divides",
+        paint: {
+          "fill-color": "rgba(238, 119, 51, 0.278)",
+          "fill-outline-color": "rgba(238, 119, 51, 0.7)",
+        },
+        filter: ["in", "divide_id", ""],
+      },
+      firstSymbolId,
+    );
+    map.addLayer(
+      {
+        id: "flowpaths",
+        type: "line",
+        source: "conus",
+        "source-layer": "flowpaths",
+        layout: {
+          "line-cap": "round",
+        },
+        paint: {
+          "line-width": [
+            "interpolate",
+            ["exponential", 1.5],
+            ["get", "order"],
+            0,
+            1,
+            8,
+            8,
+          ],
+          "line-color": "rgba(0, 119, 187, 1)",
+          "line-opacity": 1,
+        },
+      },
+      firstSymbolId,
+    );
+    map.on("load", () => {
+      map.on("click", "divides", (e) => {
+        if (!map.loaded()) return;
+        if (e.features && e.features.length > 0) {
+          catId = "cat-" + e.features[0].id;
+          document.getElementById("input-catid").value = catId;
+          const f = e.features[0];
+          selected_id = f.properties.upstream_id;
+          selected_num_upstreams = f.properties.num_upstreams;
+          const uf = queryFlowpath(f.properties.toid);
+          if (!uf) {
+            window.alert("unable to find outlet");
+            return;
+          }
+          outlet_id = uf.properties.upstream_id;
+          nexId = "nex-" + uf.id;
+          outlet_num_upstreams = uf.properties.num_upstreams;
+          updateFilters();
+        }
+      });
+      map.on("mouseenter", "divides", () => {
+        map.getCanvas().style.cursor = "pointer";
+      });
+      map.on("mouseleave", "divides", () => {
+        map.getCanvas().style.cursor = "";
+      });
+    });
+  });
+}
+
+function updateFilters() {
+  const includeOutlet = document.getElementById("chk-include-outlet").checked;
+  let upid, upstream_count, outlet;
+  if (includeOutlet) {
+    outlet = nexId;
+    upid = outlet_id;
+    upstream_count = outlet_num_upstreams;
+  } else {
+    outlet = catId;
+    upid = selected_id;
+    upstream_count = selected_num_upstreams;
+  }
+
+  map.setFilter("selected-divides", ["==", "upstream_id", selected_id]);
+  map.setFilter("upstream-divides", [
+    "all",
+    [">", "upstream_id", upid],
+    ["<=", "upstream_id", upid + upstream_count],
+    ["!=", "upstream_id", selected_id],
+  ]);
+
+  const info = document.getElementById("selection-info");
+  info.style.display = "block";
+  info.innerHTML = `Outlet: <span class="outlet">${outlet}</span><br>Upstream: <span class="count">${upstream_count}</span> catchments`;
+}
+
+document.getElementById("chk-include-outlet").addEventListener("change", () => {
+  if (selected_id) updateFilters();
+});
+
+document.getElementById("btn-clear").addEventListener("click", () => {
+  map.setFilter("selected-divides", ["in", "id", ""]);
+  map.setFilter("upstream-divides", ["in", "id", ""]);
+  document.getElementById("input-catid").value = "";
+  document.getElementById("selection-info").style.display = "none";
+});
+
+initMap();

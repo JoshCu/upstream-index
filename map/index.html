@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hydrofabric Subsetter</title>
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Source+Sans+3:wght@300;400;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
+    <link href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css" rel="stylesheet" />
+    <script src="https://unpkg.com/pmtiles@4.4.1/dist/pmtiles.js"></script>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <div id="map-container">
+      <div id="map"></div>
+    </div>
+    <div id="sidebar">
+      <header>
+        <h1>&#9651; HYDROFABRIC Viewer</h1>
+      </header>
+      <div id="controls">
+        <div class="field">
+          <label>Catchment ID</label>
+          <input id="input-catid" type="text" placeholder="e.g. cat-486931" spellcheck="false" />
+        </div>
+        <label class="checkbox-field">
+          <input type="checkbox" id="chk-include-outlet" checked />
+          <span>Include outlet nexus</span>
+        </label>
+        <div class="btn-row">
+          <button id="btn-clear">Clear</button>
+        </div>
+      </div>
+      <div id="selection-info"></div>
+    </div>
+    <script src="./map.js"></script>
+    <!--<script>
+      (function () {
+        function connect() {
+          const ws = new WebSocket(`ws://${location.host}/ws`);
+          ws.onmessage = () => location.reload();
+          ws.onclose = () => setTimeout(connect, 2000);
+        }
+        connect();
+      })();
+    </script>-->
+  </body>
+</html>

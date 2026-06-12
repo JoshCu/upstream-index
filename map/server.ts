@@ -1,7 +1,7 @@
 // server.ts
-import map from "./map.html";
+import map from "./index.html";
 
-const tiles = Bun.file("./conus.pmtiles");
+const tiles = Bun.file("./tiles/conus.pmtiles");
 
 Bun.serve({
   port: 3000,
