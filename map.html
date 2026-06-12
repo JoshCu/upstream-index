@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Hydrofabric Subsetter</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Source+Sans+3:wght@300;400;600;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
+<link href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css" rel="stylesheet"/>
+<script src="https://unpkg.com/pmtiles@4.4.1/dist/pmtiles.js"></script>
+<style>
+:root {
+  --bg:#0a0e17; --surface:#111827; --surface2:#1e293b; --border:#334155;
+  --text:#e2e8f0; --text-dim:#94a3b8; --accent:#38bdf8; --accent-dim:#0ea5e9;
+  --selected:#ee3377; --upstream:#ee7733; --success:#10b981; --danger:#ef4444;
+  --radius:6px;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Source Sans 3',sans-serif;background:var(--bg);color:var(--text);overflow:hidden;height:100vh;width:100vw}
+#map-container{position:absolute;inset:0;z-index:0;display:flex}
+#map{flex:1}
+.map-label{display:none;position:absolute;top:8px;z-index:5;
+  padding:4px 12px;background:var(--surface);border:1px solid var(--border);
+  border-radius:var(--radius);font-size:11px;font-weight:600;color:var(--text-dim);
+  font-family:'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:.5px;
+  pointer-events:none}
+#sidebar{
+  position:absolute;top:16px;left:16px;z-index:10;width:340px;
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+  display:flex;flex-direction:column;max-height:calc(100vh - 32px);
+  box-shadow:0 8px 32px rgba(0,0,0,.5);overflow:hidden;
+}
+#sidebar header{padding:16px 20px;border-bottom:1px solid var(--border);background:var(--surface2)}
+#sidebar header h1{font-size:15px;font-weight:700;letter-spacing:.5px;color:var(--accent);font-family:'JetBrains Mono',monospace}
+#sidebar header p{font-size:12px;color:var(--text-dim);margin-top:4px;line-height:1.5}
+#controls{padding:16px 20px;flex-shrink:0}
+.field{margin-bottom:12px}
+.field label{display:block;font-size:11px;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px;font-family:'JetBrains Mono',monospace}
+.field input{width:100%;padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-family:'JetBrains Mono',monospace;font-size:13px}
+.field input:focus{outline:none;border-color:var(--accent)}
+.field input::placeholder{color:#475569}
+.btn-row{display:flex;gap:8px;margin-top:16px}
+button{flex:1;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius);font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600;cursor:pointer;transition:all .15s;text-transform:uppercase;letter-spacing:.5px}
+#btn-subset{background:var(--accent-dim);color:#000;border-color:var(--accent)}
+#btn-subset:hover{background:var(--accent)}
+#btn-subset:disabled{opacity:.4;cursor:not-allowed;background:var(--surface2);color:var(--text-dim);border-color:var(--border)}
+#btn-clear{background:var(--surface2);color:var(--text-dim);flex:0 0 auto;width:80px}
+#btn-clear:hover{color:var(--text);border-color:var(--text-dim)}
+#selection-info{padding:12px 20px;border-top:1px solid var(--border);font-size:12px;color:var(--text-dim);font-family:'JetBrains Mono',monospace;line-height:1.6;display:none}
+#selection-info .count{color:var(--upstream);font-weight:600;font-size:14px}
+#selection-info .outlet{color:var(--selected);font-weight:600}
+#log-container{flex:1;overflow-y:auto;border-top:1px solid var(--border);padding:12px 20px;min-height:80px}
+#log{font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.7;color:var(--text-dim);white-space:pre-wrap;word-break:break-all}
+#log .info{color:var(--accent)} #log .success{color:var(--success)}
+#log .error{color:var(--danger)} #log .step{color:var(--upstream)}
+#progress-bar{height:3px;background:var(--surface2);overflow:hidden;flex-shrink:0}
+#progress-fill{height:100%;width:0%;background:linear-gradient(90deg,var(--accent),#22d3ee);transition:width .3s}
+.checkbox-field{display:flex;align-items:center;gap:8px;margin-bottom:12px;cursor:pointer}
+.checkbox-field input[type="checkbox"]{width:14px;height:14px;cursor:pointer;accent-color:var(--accent)}
+.checkbox-field span{font-size:12px;color:var(--text-dim)}
+
+</style>
+</head>
+<body>
+<div id="map-container">
+  <div id="map"></div>  
+</div>
+<div id="sidebar">
+  <header>
+    <h1>&#9651; HYDROFABRIC Viewer</h1>
+  </header>
+  <div id="controls">
+    <div class="field">
+      <label>Catchment ID</label>
+      <input id="input-catid" type="text" placeholder="e.g. cat-486931" spellcheck="false"/>
+    </div>
+    <label class="checkbox-field">
+      <input type="checkbox" id="chk-include-outlet" checked/>
+      <span>Include outlet nexus</span>
+    </label>
+    <div class="btn-row">
+      <button id="btn-clear">Clear</button>
+    </div>
+  </div>
+  <div id="selection-info"></div>
+</div>
+<script>
+let map = null;
+let catId = null;
+let nexId = null;
+let selected_id = null;
+let selected_num_upstreams = null;
+let outlet_id = null;
+let outlet_num_upstreams = null;
+let outlet = null;
+
+
+function queryFlowpath(flowpathID){
+  if (!map.loaded()) return;
+  const features = map.querySourceFeatures("conus",{
+    sourceLayer: ["flowpaths"],
+    filter: ['==', 'id', flowpathID]
+  });
+  return features[0];
+}
+
+function initMap() {
+  const protocol = new pmtiles.Protocol({ metadata: true });
+  maplibregl.addProtocol('pmtiles', protocol.tile);
+  map = new maplibregl.Map({
+    container: 'map',
+    style: "https://tiles.openfreemap.org/styles/liberty",
+    center: [-96, 40],
+    zoom: 4,
+  });
+
+  map.once("styledata", () => {
+    if (map.getSource("conus")) return;
+    const layers = map.getStyle().layers;
+    let firstSymbolId;
+    for (let i = 0; i < layers.length; i++) {
+        if (layers[i].type === 'symbol') {
+            firstSymbolId = layers[i].id;
+            break;
+        }
+    }
+    map.addSource("conus", {
+      type: "vector",
+      url: "pmtiles://conus.pmtiles",
+    });
+    map.addLayer(
+      {
+        id: "divides",
+        type: "fill",
+        source: "conus",
+        "source-layer": "divides",
+        paint: {
+          "fill-color": "rgba(0, 0, 0, 0)",
+          "fill-outline-color": ["interpolate", ["linear"], ["zoom"], 6, "rgba(1, 1, 1, 0)", 7, "rgba(1, 1, 1, 0.5)"],
+           
+        },
+      },
+      firstSymbolId
+    );
+    map.addLayer(
+      {
+        id: "selected-divides",
+        // type: "fill-extrusion",
+        type: "fill",
+        source: "conus",
+        "source-layer": "divides",
+        paint: {
+          // "fill-extrusion-color": "rgba(238, 51, 119, 0.316)",
+          // "fill-extrusion-height": 100,
+          "fill-color": "rgba(238, 51, 119, 0.316)",
+          "fill-outline-color": "rgba(238, 51, 119, 0.7)",
+        },
+        filter: ["in", "divide_id", ""]
+      },
+      firstSymbolId
+    );
+    map.addLayer(
+      {
+        id: "upstream-divides",
+        type: "fill",
+        source: "conus",
+        "source-layer": "divides",
+        paint: {
+          "fill-color": "rgba(238, 119, 51, 0.278)",
+          "fill-outline-color": "rgba(238, 119, 51, 0.7)",
+        },
+        filter: ["in", "divide_id", ""]
+      },
+      firstSymbolId
+    );
+    map.addLayer(
+      {
+        id: "flowpaths",
+        type: "line",
+        source: "conus",
+        "source-layer": "flowpaths",
+        layout:{
+          "line-cap": "round",          
+        },
+        paint: {
+          "line-width": ['interpolate', ['linear'], ['get','order'], 1, 0, 8, 8],
+          "line-color": "rgba(0, 119, 187, 1)",
+          "line-opacity": 1,
+        },
+      },
+      firstSymbolId
+    );
+    map.on('load', () => {
+      map.on('click', 'divides',(e) => {
+        if (!map.loaded()) return;
+        if (e.features && e.features.length > 0) {         
+          catId = 'cat-' + e.features[0].id;
+          document.getElementById("input-catid").value = catId;
+          f = e.features[0];
+          selected_id = f.properties.upstream_id;
+          selected_num_upstreams = f.properties.num_upstreams;
+          uf = queryFlowpath(f.properties.toid);
+          if (!uf) {
+            window.alert("unable to find outlet");
+            return;
+          }
+          outlet_id = uf.properties.upstream_id;
+          nexId = 'nex-' + uf.id;
+          outlet_num_upstreams = uf.properties.num_upstreams;
+          
+          updateFilters();
+        }
+      });
+      map.on('mouseenter', 'divides', () => { map.getCanvas().style.cursor = 'pointer'; });
+      map.on('mouseleave', 'divides', () => { map.getCanvas().style.cursor = ''; });
+    });
+
+  });
+
+}
+
+function updateFilters(){
+  const includeOutlet = document.getElementById('chk-include-outlet').checked;
+  let upid;
+  let upstream_count;
+  let outlet;
+  if (includeOutlet){
+    outlet = nexId;
+    upid = outlet_id;
+    upstream_count = outlet_num_upstreams;
+  }
+  else {
+    outlet = catId;
+    upid = selected_id;
+    upstream_count = selected_num_upstreams;
+  }
+
+  map.setFilter('selected-divides', ['==', 'upstream_id', selected_id]);
+  map.setFilter('upstream-divides', ['all', ['>', 'upstream_id', upid],['<=', 'upstream_id', upid+upstream_count],['!=', 'upstream_id', selected_id]]);
+
+  const info = document.getElementById('selection-info');
+  info.style.display = 'block';
+  info.innerHTML = `Outlet: <span class="outlet">${outlet}</span><br>Upstream: <span class="count">${upstream_count}</span> catchments`;
+}
+
+document.getElementById('chk-include-outlet').addEventListener('change', () => {
+  if (selected_id) updateFilters();    
+});
+
+document.getElementById('btn-clear').addEventListener('click', () => {
+  map.setFilter('selected-divides', ['in', 'id', '']);
+  map.setFilter('upstream-divides', ['in', 'id', '']);
+  document.getElementById('input-catid').value = '';
+  document.getElementById('selection-info').style.display = 'none';
+});
+
+(async () => {
+  initMap();
+})();
+</script>
+</body>
+</html>
