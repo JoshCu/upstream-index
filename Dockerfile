@@ -15,18 +15,41 @@ RUN mv pmtiles /usr/local/bin
 
 FROM base AS hf_download
 ADD --unpack https://communityhydrofabric.com/hydrofabrics/community/conus_nextgen.tar.gz /raw_hf/
+# disable spatial index to stop the UPDATEs below triggering spatial index rebuilds
+RUN ogrinfo /raw_hf/conus_nextgen.gpkg -sql "SELECT DisableSpatialIndex('divides','geom')"
+RUN ogrinfo /raw_hf/conus_nextgen.gpkg -sql "SELECT DisableSpatialIndex('flowpaths','geom')"
+RUN ogrinfo /raw_hf/conus_nextgen.gpkg -sql "SELECT DisableSpatialIndex('nexus','geom')"
 
-FROM hf_download AS upstream_indexing
+
+FROM hf_download AS fix_10l
+# this fix has huge implications that require recalculating any metrics like upstream area
+# not done here as we're not using any of them in this simple example
+# I just want the map to show flowpaths properly
+# nexuses tnx-1000005433 and tnx-1000005436 shouldn't exist and instead there should be a nex-1580119
+# they're in the right place so we can reuse one to avoid dealing with geometry
+RUN sqlite3 /raw_hf/conus_nextgen.gpkg "\
+  DELETE FROM nexus WHERE id = 'tnx-1000005436'; \
+  DELETE FROM network WHERE id = 'tnx-1000005436'; \
+  UPDATE nexus SET id = 'nex-1580119', toid = 'wb-1580119', type = 'nexus' WHERE id IN ('tnx-1000005433','tnx-1000005436'); \
+  UPDATE network SET id = 'nex-1580119', toid = 'wb-1580119', type = 'nexus' WHERE id IN ('tnx-1000005433','tnx-1000005436'); \
+  UPDATE flowpaths SET toid = 'nex-1580119' WHERE toid IN ('tnx-1000005433','tnx-1000005436'); \
+  UPDATE divides SET toid = 'nex-1580119' WHERE toid IN ('tnx-1000005433','tnx-1000005436'); \
+  UPDATE network SET toid = 'nex-1580119' WHERE toid IN ('tnx-1000005433','tnx-1000005436'); \
+"
+
+FROM fix_10l AS fix_order
+COPY tiles/fix_order.py .
+RUN python3 fix_order.py
+
+FROM fix_order AS upstream_indexing
 WORKDIR /indexing
 COPY indexing/main.py .
 RUN python3 main.py
 
-FROM hf_download AS conus_to_mbtiles
+
+FROM fix_order AS conus_to_mbtiles
 # conus EPSG:5070
 WORKDIR /fgb/conus
-# disable spatial index to stop the UPDATEs below triggering spatial index rebuilds
-RUN ogrinfo /raw_hf/conus_nextgen.gpkg -sql "SELECT DisableSpatialIndex('flowpaths','geom')"
-RUN ogrinfo /raw_hf/conus_nextgen.gpkg -sql "SELECT DisableSpatialIndex('divides','geom')"
 
 # convert the id fields to integers to speed up tiles creation and reduce tile size to allow for more geometry per tile
 RUN sqlite3 /raw_hf/conus_nextgen.gpkg "UPDATE flowpaths SET divide_id = CAST(substr(divide_id,5) AS INTEGER), id = CAST(substr(id,4) AS INTEGER), toid = CAST(substr(toid,5) AS INTEGER);"
@@ -69,6 +92,7 @@ RUN tippecanoe -z10 -Z1 -o flowpaths.mbtiles \
     --drop-by-attribute-as-needed=order \
     --extend-zooms-if-still-dropping \
     flowpaths.fgb -P
+# remove attributes at low zoom except Order, coalese
 
 RUN tippecanoe -z10 -Z4 -o divides.mbtiles \
     --use-attribute-for-id=divide_id \
