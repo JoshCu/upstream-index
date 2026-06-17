@@ -2,7 +2,6 @@
 # requires-python = ">=3.12"
 # dependencies = []
 # ///
-
 import sqlite3
 from collections import defaultdict, deque
 from pathlib import Path
@@ -16,12 +15,14 @@ def fix_sn(input) -> int:
     return int(sig) * 10 ** int(offset)
 
 
-def get_network(hf_path: Path) -> (dict, set, dict):
+def get_network(hf_path: Path) -> (dict, set, dict, dict):
     network = dict()
     not_headwaters = set()
     inv_network = defaultdict(set)
+    order = dict()
     with sqlite3.connect(hf_path) as con:
-        sql = "select id, toid from flowpaths WHERE toid NOT LIKE 'tnx-%'"
+        # pull order so we can break merge groups where Strahler order changes
+        sql = "select id, toid, \"order\" from flowpaths WHERE toid NOT LIKE 'tnx-%'"
         results = con.execute(sql).fetchall()
         for r in results:
             id = fix_sn(r[0][3:])
@@ -29,7 +30,8 @@ def get_network(hf_path: Path) -> (dict, set, dict):
             not_headwaters.add(toid)
             network[id] = toid
             inv_network[toid].add(id)
-    return network, not_headwaters, inv_network
+            order[id] = r[2]
+    return network, not_headwaters, inv_network, order
 
 
 def get_depth(network, inv_network) -> dict:
@@ -59,7 +61,7 @@ def get_max(ids, depths) -> int:
     return best_id
 
 
-def get_upstream_indices(inv_network, depths, outlets, network) -> (dict, list):
+def get_upstream_indices(inv_network, depths, outlets, network) -> dict:
     upstream_ids = dict()
     seen = set()
     id_count = 0
@@ -70,7 +72,6 @@ def get_upstream_indices(inv_network, depths, outlets, network) -> (dict, list):
                 upstream_ids[id] = id_count
                 id_count += 1
             seen.add(id)
-
             upstreams = inv_network[id]
             upstreams -= seen
             if len(upstreams) == 0:
@@ -82,12 +83,38 @@ def get_upstream_indices(inv_network, depths, outlets, network) -> (dict, list):
     return upstream_ids
 
 
+def get_merge_groups(upstream_ids, network, order) -> dict:
+    """Group flowpaths into pre-mergeable runs.
+    Walk segments in upstream_id order. A run continues only while the next
+    segment is the SAME order AND topologically attached to the current run
+    """
+    # iterate in upstream_id order (the depth-first channel walk)
+    ordered = sorted(upstream_ids, key=lambda i: upstream_ids[i])
+
+    merge_group = dict()
+    group_count = 0
+    prev_id = None
+    prev_order = None
+
+    for id in ordered:
+        connected = prev_id is not None and network.get(id) == prev_id
+        same_order = prev_id is not None and order.get(id) == prev_order
+
+        if not (connected and same_order):
+            group_count += 1  # start a fresh group
+
+        merge_group[id] = group_count
+        prev_id = id
+        prev_order = order.get(id)
+
+    return merge_group
+
+
 def get_num_upstreams(network) -> dict:
     indeg = defaultdict(int)
     for toid in network.values():
         if toid is not None:
             indeg[toid] += 1
-
     num = defaultdict(int)
     queue = deque(id for id in network if indeg[id] == 0)
     while queue:
@@ -104,17 +131,17 @@ def get_num_upstreams(network) -> dict:
 
 if __name__ == "__main__":
     hf = Path("/raw_hf/conus_nextgen.gpkg").expanduser()
-    (network, not_headwaters, inv_network) = get_network(hf)
+    (network, not_headwaters, inv_network, order) = get_network(hf)
     outlets = set(network.values()) - set(network.keys())
     depths = get_depth(network, inv_network)
     indices = get_upstream_indices(inv_network, depths, outlets, network)
+    merge_groups = get_merge_groups(indices, network, order)
     num_upstreams = get_num_upstreams(network)
-    ups = Path("num_upstreams.json")
-    idx = Path("upstream-indices.json")
-    # idx.write_text(json.dumps(indices))
-    # ups.write_text(json.dumps(num_upstreams))
+
     csv_output = Path("upstream-idx.csv")
     with csv_output.open("w") as f:
-        f.write("id, upstream_id, num_upstreams\n")
+        f.write("id,upstream_id,num_upstreams,merge_group\n")
         for id, upstream_id in indices.items():
-            f.write(f"{int(id)}, {int(upstream_id)}, {num_upstreams[id]}\n")
+            f.write(
+                f"{int(id)}, {int(upstream_id)}, {num_upstreams[id]}, {int(merge_groups[id])}\n"
+            )

@@ -5,12 +5,13 @@ let selected_id = null;
 let selected_num_upstreams = null;
 let outlet_id = null;
 let outlet_num_upstreams = null;
+// import { handleHover } from "./tooltip.js";
 
 function queryFlowpath(flowpathID) {
   if (!map.loaded()) return;
-  const features = map.querySourceFeatures("conus", {
+  const features = map.querySourceFeatures("flowpaths", {
     sourceLayer: ["flowpaths"],
-    filter: ["==", "id", flowpathID],
+    filter: ["==", ["id"], flowpathID],
   });
   return features[0];
 }
@@ -24,9 +25,8 @@ function initMap() {
     center: [-96, 40],
     zoom: 4,
   });
-
   map.once("styledata", () => {
-    if (map.getSource("conus")) return;
+    if (map.getSource("flowpaths")) return;
     const layers = map.getStyle().layers;
     let firstSymbolId;
     for (let i = 0; i < layers.length; i++) {
@@ -35,15 +35,19 @@ function initMap() {
         break;
       }
     }
-    map.addSource("conus", {
+    map.addSource("divides", {
       type: "vector",
-      url: "pmtiles://conus.pmtiles",
+      url: "pmtiles://divides.pmtiles",
+    });
+    map.addSource("flowpaths", {
+      type: "vector",
+      url: "pmtiles://flowpaths.pmtiles",
     });
     map.addLayer(
       {
         id: "divides",
         type: "fill",
-        source: "conus",
+        source: "divides",
         "source-layer": "divides",
         paint: {
           "fill-color": "rgba(0, 0, 0, 0)",
@@ -64,7 +68,7 @@ function initMap() {
       {
         id: "selected-divides",
         type: "fill",
-        source: "conus",
+        source: "divides",
         "source-layer": "divides",
         paint: {
           "fill-color": "rgba(238, 51, 119, 0.316)",
@@ -78,7 +82,7 @@ function initMap() {
       {
         id: "upstream-divides",
         type: "fill",
-        source: "conus",
+        source: "divides",
         "source-layer": "divides",
         paint: {
           "fill-color": "rgba(238, 119, 51, 0.278)",
@@ -92,7 +96,7 @@ function initMap() {
       {
         id: "flowpaths",
         type: "line",
-        source: "conus",
+        source: "flowpaths",
         "source-layer": "flowpaths",
         layout: {
           "line-cap": "round",
@@ -100,20 +104,28 @@ function initMap() {
         paint: {
           "line-width": [
             "interpolate",
-            ["exponential", 1.5],
+            ["exponential", 1.6],
             ["get", "order"],
-            0,
+            1,
             1,
             8,
-            8,
+            6,
           ],
-          "line-color": "rgba(0, 119, 187, 1)",
-          "line-opacity": 1,
+          "line-color": [
+            "interpolate",
+            ["linear"],
+            ["zoom"],
+            1.3,
+            "rgba(0, 119, 187, 0)",
+            5,
+            "rgba(0, 119, 187, 1)",
+          ],
         },
       },
       firstSymbolId,
     );
     map.on("load", () => {
+      // map.on("mousemove", "divides", handleHover);
       map.on("click", "divides", (e) => {
         if (!map.loaded()) return;
         if (e.features && e.features.length > 0) {

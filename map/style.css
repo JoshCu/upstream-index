@@ -223,3 +223,44 @@ button {
     font-size: 12px;
     color: var(--text-dim);
 }
+
+/* Tooltip */
+.tooltip {
+    position: absolute;
+    pointer-events: none;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: 10px 14px;
+    font-size: 13px;
+    z-index: 1000;
+    opacity: 0;
+    transition: opacity 0.15s;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+}
+
+.tooltip.visible {
+    opacity: 1;
+}
+
+.tooltip-title {
+    font-weight: 600;
+    color: var(--accent-secondary);
+    margin-bottom: 6px;
+}
+
+.tooltip-row {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-md);
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12px;
+}
+
+.tooltip-label {
+    color: var(--text-secondary);
+}
+
+.tooltip-value {
+    color: var(--text-primary);
+}

@@ -1,5 +1,5 @@
 upstream-idx.csv
-conus.pmtiles
+*.pmtiles
 __pycache__
 media/
 animation/

@@ -46,83 +46,108 @@ WORKDIR /indexing
 COPY indexing/main.py .
 RUN python3 main.py
 
-
-FROM fix_order AS conus_to_mbtiles
-# conus EPSG:5070
-WORKDIR /fgb/conus
-
+FROM fix_order AS numeric_id
 # convert the id fields to integers to speed up tiles creation and reduce tile size to allow for more geometry per tile
 RUN sqlite3 /raw_hf/conus_nextgen.gpkg "UPDATE flowpaths SET divide_id = CAST(substr(divide_id,5) AS INTEGER), id = CAST(substr(id,4) AS INTEGER), toid = CAST(substr(toid,5) AS INTEGER);"
 RUN sqlite3 /raw_hf/conus_nextgen.gpkg "UPDATE divides SET divide_id = CAST(substr(divide_id,5) AS INTEGER), id = CAST(substr(id,4) AS INTEGER), toid = CAST(substr(toid,5) AS INTEGER);"
 
-# convert to flatgeobuf for use with tippecanoe
-RUN ogr2ogr -s_srs EPSG:5070 -t_srs CRS:84 flowpaths.fgb /raw_hf/conus_nextgen.gpkg flowpaths
-RUN ogr2ogr -s_srs EPSG:5070 -t_srs CRS:84 divides.fgb /raw_hf/conus_nextgen.gpkg divides
+COPY --from=upstream_indexing ./indexing/upstream-idx.csv .
+RUN sqlite3 /raw_hf/conus_nextgen.gpkg <<'EOF'
+DROP TABLE IF EXISTS tmp;
+.import --csv upstream-idx.csv tmp
+CREATE INDEX idx_tmp_id ON tmp(id);
+ALTER TABLE flowpaths ADD COLUMN upstream_id INTEGER;
+ALTER TABLE flowpaths ADD COLUMN num_upstreams INTEGER;
+ALTER TABLE flowpaths ADD COLUMN merge_group TEXT;
+ALTER TABLE divides ADD COLUMN upstream_id INTEGER;
+ALTER TABLE divides ADD COLUMN num_upstreams INTEGER;
+ALTER TABLE divides ADD COLUMN merge_group TEXT;
+UPDATE flowpaths
+SET (upstream_id, num_upstreams, merge_group) =
+    (SELECT CAST(t.upstream_id AS INTEGER), CAST(t.num_upstreams AS INTEGER), t.merge_group
+     FROM tmp t WHERE t.id = flowpaths.id)
+WHERE id IN (SELECT id FROM tmp);
+UPDATE divides
+SET (upstream_id, num_upstreams, merge_group) =
+    (SELECT CAST(t.upstream_id AS INTEGER), CAST(t.num_upstreams AS INTEGER), t.merge_group
+     FROM tmp t WHERE t.id = divides.id)
+WHERE id IN (SELECT id FROM tmp);
+DROP TABLE tmp;
+EOF
+
+ARG ATTRS='-y order -y divide_id -y upstream_id -y num_upstreams -y toid'
+ARG TYPES='-T order:int -T divide_id:int -T upstream_id:int -T num_upstreams:int -T toid:int'
+WORKDIR /fgb/conus
+
+FROM numeric_id AS low_zoom
+RUN ogr2ogr /raw_hf/fixed.gpkg /raw_hf/conus_nextgen.gpkg \
+  -dialect sqlite -nlt MULTILINESTRING\
+  -sql 'SELECT ST_LineMerge(ST_Union(geom)) AS geom, merge_group, MIN(upstream_id) AS upstream_id, MAX(num_upstreams) AS num_upstreams, toid, MAX("order") AS "order", id FROM flowpaths GROUP BY merge_group'
+RUN ogr2ogr -s_srs EPSG:5070 -t_srs CRS:84 flowpaths.fgb /raw_hf/fixed.gpkg SELECT
+RUN tippecanoe -z6 -Z1 -o flowpaths-low.mbtiles \
+    --use-attribute-for-id=divide_id \
+    -l flowpaths -X\
+    ${ATTRS} \
+    ${TYPES} \
+    -aI  \
+    -pS \
+    --drop-by-attribute-as-needed=order \
+    flowpaths.fgb -P
+
+FROM numeric_id AS conus_hydrolocations
 RUN ogr2ogr -s_srs EPSG:5070 -t_srs CRS:84 hydrolocations.fgb /raw_hf/conus_nextgen.gpkg hydrolocations
 
-# create a filter to control tile zoom levels and geometry density
-# the geometry must match ANY of the following conditions
-# - zoom level is 1 or higher AND order is 5 or higher
-# - zoom level is 4 or higher AND order is 4 or higher
-# etc
-#
-# --drop-by-attribute-as-needed=order automatically does this
-# These boundaries just speed it up so it doesn't waste time trying combinations that will fail
-RUN cat > flowpaths-filter.json <<'JSON'
-{
-  "*": [ "any",
-    [ "all", [ ">=", "$zoom", 1 ], [ ">=", "order", 5 ] ],
-    [ "all", [ ">=", "$zoom", 4 ], [ ">=", "order", 4 ] ],
-    [ "all", [ ">=", "$zoom", 5 ], [ ">=", "order", 3 ] ],
-    [ "all", [ ">=", "$zoom", 7 ], [ ">", "order", 0 ] ],
-    [ ">=", "$zoom", 8 ]
-  ]
-}
-JSON
-
-RUN tippecanoe -z10 -Z1 -o flowpaths.mbtiles \
-    --use-attribute-for-id=divide_id \
-    -l flowpaths \
-    -y "id" -y "order" -y "divide_id" -y "toid" -X \
-    -T "id":int -T "order":int -T "divide_id":int -T "toid":int \
-    -aI  \
-    -S 5 \
-    -pS \
-    -J flowpaths-filter.json \
-    --drop-by-attribute-as-needed=order \
-    --extend-zooms-if-still-dropping \
-    flowpaths.fgb -P
-# remove attributes at low zoom except Order, coalese
+FROM numeric_id AS conus_divides
+RUN ogr2ogr -s_srs EPSG:5070 -t_srs CRS:84 divides.fgb /raw_hf/conus_nextgen.gpkg divides
 
 RUN tippecanoe -z10 -Z4 -o divides.mbtiles \
     --use-attribute-for-id=divide_id \
-    -l divides \
-    -y "id" -y "order" -y "divide_id" -y "toid" -X \
-    -T "id":int -T "order":int -T "divide_id":int -T "toid":int \
+    -l divides -X \
+    ${ATTRS}   \
+    ${TYPES} \
+    -M 300000 \
     --order-by="divide_id" \
     --coalesce-densest-as-needed \
-    --accumulate-attribute="id":min \
     -aI  \
     divides.fgb -P
 
+FROM numeric_id AS conus_flowpaths
+RUN ogr2ogr -s_srs EPSG:5070 -t_srs CRS:84 flowpaths.fgb /raw_hf/conus_nextgen.gpkg flowpaths
+
+RUN tippecanoe -z10 -Z7 -o flowpaths-high.mbtiles \
+    --use-attribute-for-id=divide_id \
+    -l flowpaths -X \
+    ${ATTRS} \
+    ${TYPES} \
+    -aI  \
+    -pS \
+    --drop-by-attribute-as-needed=order \
+    --extend-zooms-if-still-dropping \
+    flowpaths.fgb -P
+
 # RUN tippecanoe -z10 -Z2 -r1 --cluster-distance=5 -o hydrolocations.mbtiles -l conus_hydrolocations hydrolocations.fgb -P
 # RUN tippecanoe -z10 -Z3 -r1 -j '{ "*": [ "any", [ "==", "hl_reference", "gages" ]] }' -o gages.mbtiles -l conus_gages hydrolocations.fgb -P
-COPY --from=upstream_indexing ./indexing/upstream-idx.csv .
-RUN tile-join -pk -c upstream-idx.csv -o conus.mbtiles flowpaths.mbtiles divides.mbtiles
 #hydrolocations.mbtiles gages.mbtiles
 
 FROM base AS join_tiles
-
 WORKDIR /mbtiles/merged
-COPY --from=conus_to_mbtiles /fgb/conus/conus.mbtiles .
-RUN pmtiles convert --no-deduplication conus.mbtiles conus.pmtiles
+COPY --from=low_zoom /fgb/conus/flowpaths-low.mbtiles .
+COPY --from=conus_flowpaths /fgb/conus/flowpaths-high.mbtiles .
+COPY --from=conus_divides /fgb/conus/divides.mbtiles .
+
+RUN tile-join -pk -o  flowpaths.mbtiles flowpaths-low.mbtiles flowpaths-high.mbtiles
+
+RUN pmtiles convert divides.mbtiles divides.pmtiles
+RUN pmtiles convert flowpaths.mbtiles flowpaths.pmtiles
 
 FROM oven/bun:1 AS server
 WORKDIR /usr/src/app
 COPY map ./map
 # only copying this so build.sh can copy it to a local folder outside of the container
 COPY --from=upstream_indexing ./indexing/upstream-idx.csv /indexing/upstream-idx.csv
-COPY --from=join_tiles /mbtiles/merged/conus.pmtiles ./tiles/conus.pmtiles
+COPY --from=join_tiles /mbtiles/merged/divides.pmtiles ./tiles/divides.pmtiles
+COPY --from=join_tiles /mbtiles/merged/flowpaths.pmtiles ./tiles/flowpaths.pmtiles
+
 USER bun
 EXPOSE 3000/tcp
 ENTRYPOINT [ "bun", "run", "./map/server.ts" ]
