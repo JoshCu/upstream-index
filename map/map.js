@@ -5,6 +5,9 @@ let selected_id = null;
 let selected_num_upstreams = null;
 let outlet_id = null;
 let outlet_num_upstreams = null;
+var divide_pmtiles = "divides.pmtiles";
+var flowpath_pmtiles = "flowpaths.pmtiles";
+let backup_url = "https://communityhydrofabric.s3.us-east-1.amazonaws.com/map/only_geometry/upstream_index/";
 // import { handleHover } from "./tooltip.js";
 
 function queryFlowpath(flowpathID) {
@@ -14,6 +17,20 @@ function queryFlowpath(flowpathID) {
     filter: ["==", ["id"], flowpathID],
   });
   return features[0];
+}
+
+async function checkPmtiles() {
+  divide_pmtiles = await checkResourceExists(divide_pmtiles) ? divide_pmtiles : backup_url + divide_pmtiles;
+  flowpath_pmtiles = await checkResourceExists(flowpath_pmtiles) ? flowpath_pmtiles : backup_url + flowpath_pmtiles;
+}
+
+async function checkResourceExists(url) {
+  try {
+    const response = await fetch(url, { method: 'HEAD' });
+    return response.ok; // True if status is 200-299
+  } catch (error) {
+    return false; // Network error or resource does not exist
+  }
 }
 
 function initMap() {
@@ -38,11 +55,11 @@ function initMap() {
     }
     map.addSource("divides", {
       type: "vector",
-      url: "pmtiles://https://communityhydrofabric.s3.us-east-1.amazonaws.com/map/merged.pmtiles",
+      url: "pmtiles://" + divide_pmtiles,
     });
     map.addSource("flowpaths", {
       type: "vector",
-      url: "pmtiles://flowpaths.pmtiles",
+      url: "pmtiles://" + flowpath_pmtiles,
     });
     map.addLayer(
       {
@@ -193,4 +210,6 @@ document.getElementById("btn-clear").addEventListener("click", () => {
   document.getElementById("selection-info").style.display = "none";
 });
 
-initMap();
+checkPmtiles().then(() => {
+  initMap();
+});
