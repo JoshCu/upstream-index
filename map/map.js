@@ -19,6 +19,7 @@ function queryFlowpath(flowpathID) {
 function initMap() {
   const protocol = new pmtiles.Protocol({ metadata: true });
   maplibregl.addProtocol("pmtiles", protocol.tile);
+  maplibregl.setWorkerCount(4);
   map = new maplibregl.Map({
     container: "map",
     style: "https://tiles.openfreemap.org/styles/liberty",
@@ -37,7 +38,7 @@ function initMap() {
     }
     map.addSource("divides", {
       type: "vector",
-      url: "pmtiles://divides.pmtiles",
+      url: "pmtiles://https://communityhydrofabric.s3.us-east-1.amazonaws.com/map/merged.pmtiles",
     });
     map.addSource("flowpaths", {
       type: "vector",
