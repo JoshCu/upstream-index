@@ -7,7 +7,7 @@ let outlet_id = null;
 let outlet_num_upstreams = null;
 var divide_pmtiles = "divides.pmtiles";
 var flowpath_pmtiles = "flowpaths.pmtiles";
-let backup_url = "https://communityhydrofabric.s3.us-east-1.amazonaws.com/map/only_geometry/upstream_index/";
+let backup_url = "https://communityhydrofabric.com/map/only_geometry/upstream_index/";
 // import { handleHover } from "./tooltip.js";
 
 function queryFlowpath(flowpathID) {
@@ -44,7 +44,6 @@ function initMap() {
     zoom: 4,
   });
   map.once("styledata", () => {
-    if (map.getSource("flowpaths")) return;
     const layers = map.getStyle().layers;
     let firstSymbolId;
     for (let i = 0; i < layers.length; i++) {
@@ -145,23 +144,8 @@ function initMap() {
     map.on("load", () => {
       // map.on("mousemove", "divides", handleHover);
       map.on("click", "divides", (e) => {
-        if (!map.loaded()) return;
-        if (e.features && e.features.length > 0) {
-          catId = "cat-" + e.features[0].id;
-          document.getElementById("input-catid").value = catId;
-          const f = e.features[0];
-          selected_id = f.properties.upstream_id;
-          selected_num_upstreams = f.properties.num_upstreams;
-          const uf = queryFlowpath(f.properties.toid);
-          if (!uf) {
-            window.alert("unable to find outlet");
-            return;
-          }
-          outlet_id = uf.properties.upstream_id;
-          nexId = "nex-" + uf.id;
-          outlet_num_upstreams = uf.properties.num_upstreams;
-          updateFilters();
-        }
+        if (e.target.loaded()) return handleClick(e);
+        e.target.once("load", () => handleClick(e));
       });
       map.on("mouseenter", "divides", () => {
         map.getCanvas().style.cursor = "pointer";
@@ -171,6 +155,22 @@ function initMap() {
       });
     });
   });
+}
+
+function handleClick(e) {
+  if (e.features && e.features.length > 0) {
+    catId = "cat-" + e.features[0].id;
+    document.getElementById("input-catid").value = catId;
+    const f = e.features[0];
+    selected_id = f.properties.upstream_id;
+    selected_num_upstreams = f.properties.num_upstreams;
+    const uf = queryFlowpath(f.properties.toid);
+    if (!uf) return window.alert("unable to find outlet");
+    outlet_id = uf.properties.upstream_id;
+    nexId = "nex-" + uf.id;
+    outlet_num_upstreams = uf.properties.num_upstreams;
+    updateFilters();
+  }
 }
 
 function updateFilters() {
