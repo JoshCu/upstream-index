@@ -1,3 +1,5 @@
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21518730.svg)](https://doi.org/10.5281/zenodo.21518730)
+
 # upstream-index
 
 Uses the [Nested Set Model](https://en.wikipedia.org/wiki/Nested_set_model) to assign sequential integer IDs to flowpaths, enabling **O(1) upstream range queries** without any graph traversal or network connectivity data at query time.
