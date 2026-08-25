@@ -7,8 +7,8 @@ let state = {
 
 export function handleHover(e) {
   const tooltip = document.getElementById("tooltip");
+  const map = e.target;
 
-  console.log(e);
   let cat = e.features[0];
   if (cat) {
     state.hoveredObject = {
@@ -16,16 +16,25 @@ export function handleHover(e) {
       id: cat.properties.upstream_id,
       num_upstreams: cat.properties.num_upstreams,
     };
-    state.hoverPosition = { x: e.x, y: e.y };
+    state.hoverPosition = { x: e.point.x, y: e.point.y };
 
+    map.getCanvas().style.cursor = "pointer";
     tooltip.classList.add("visible");
-    tooltip.style.left = `${e.x + 15}px`;
-    tooltip.style.top = `${e.y + 15}px`;
+    tooltip.style.left = `${e.point.x + 15}px`;
+    tooltip.style.top = `${e.point.y + 15}px`;
 
     updateTooltipContent(state.hoveredObject);
   } else {
-    state.hoveredObject = null;
-    tooltip.classList.remove("visible");
+    handleHoverLeave(e);
+  }
+}
+
+export function handleHoverLeave(e) {
+  const tooltip = document.getElementById("tooltip");
+  state.hoveredObject = null;
+  tooltip.classList.remove("visible");
+  if (e?.target) {
+    e.target.getCanvas().style.cursor = "";
   }
 }
 

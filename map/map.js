@@ -9,9 +9,8 @@ let outlet_id = null;
 let outlet_num_upstreams = null;
 let lastClickedDivide = null;
 const HIDDEN_FILTER = ["any"];
-// import { handleHover } from "./tooltip.js";
-let start_time = performance.now();
-let firstSymbolId = null;
+import { handleHover, handleHoverLeave } from "./tooltip.js";
+
 
 function queryFlowpath(flowpathID) {
   if (!map.loaded()) return;
@@ -36,14 +35,9 @@ function initMap() {
 
   map.setStyle("https://tiles.openfreemap.org/styles/liberty", {transformStyle: updateIncomingStyle});
   map.on("load", () => {
-    // map.on("mousemove", "divides", handleHover);
+    map.on("mousemove", "divides", handleHover);
+    map.on("mouseleave", "divides", handleHoverLeave);
     map.on("click", "divides", onDivideClick);
-    map.on("mouseenter", "divides", () => {
-      map.getCanvas().style.cursor = "pointer";
-    });
-    map.on("mouseleave", "divides", () => {
-      map.getCanvas().style.cursor = "";
-    });
   });
 }
 

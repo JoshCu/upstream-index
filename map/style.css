@@ -228,15 +228,15 @@ button {
 .tooltip {
     position: absolute;
     pointer-events: none;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-md);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
     padding: 10px 14px;
     font-size: 13px;
     z-index: 1000;
     opacity: 0;
     transition: opacity 0.15s;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
 }
 
 .tooltip.visible {
@@ -244,23 +244,26 @@ button {
 }
 
 .tooltip-title {
-    font-weight: 600;
-    color: var(--accent-secondary);
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    color: var(--accent);
+    font-family: "JetBrains Mono", monospace;
     margin-bottom: 6px;
 }
 
 .tooltip-row {
     display: flex;
     justify-content: space-between;
-    gap: var(--space-md);
-    font-family: "IBM Plex Mono", monospace;
+    gap: 12px;
+    font-family: "JetBrains Mono", monospace;
     font-size: 12px;
 }
 
 .tooltip-label {
-    color: var(--text-secondary);
+    color: var(--text-dim);
 }
 
 .tooltip-value {
-    color: var(--text-primary);
+    color: var(--text);
+    font-weight: 600;
 }
