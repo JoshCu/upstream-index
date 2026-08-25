@@ -1,6 +1,6 @@
-var divide_pmtiles = "divides.pmtiles";
-var flowpath_pmtiles = "flowpaths.pmtiles";
-let backup_url = "https://communityhydrofabric.com/map/only_geometry/upstream_index/";
+let divide_pmtiles = "divides.pmtiles";
+let flowpath_pmtiles = "flowpaths.pmtiles";
+const backup_url = "https://communityhydrofabric.com/map/only_geometry/upstream_index/";
 
 async function checkResourceExists(url) {
   try {
@@ -12,12 +12,17 @@ async function checkResourceExists(url) {
 }
 
 export async function checkPmtiles() {
-  divide_pmtiles = await checkResourceExists(divide_pmtiles) ? divide_pmtiles : backup_url + divide_pmtiles;
-  flowpath_pmtiles = await checkResourceExists(flowpath_pmtiles) ? flowpath_pmtiles : backup_url + flowpath_pmtiles;
+  const [divideOk, flowpathOk] = await Promise.all([
+    checkResourceExists(divide_pmtiles),
+    checkResourceExists(flowpath_pmtiles),
+  ]);
+  if (!divideOk) divide_pmtiles = backup_url + divide_pmtiles;
+  if (!flowpathOk) flowpath_pmtiles = backup_url + flowpath_pmtiles;
 }
 
-const hydrofabric_map_data = {
-  sources: {
+// Built lazily (not at module load) so it picks up the resolved URLs from checkPmtiles().
+function hydrofabricSources() {
+  return {
     "flowpaths": {
       type: "vector",
       url: "pmtiles://" + flowpath_pmtiles,
@@ -26,8 +31,10 @@ const hydrofabric_map_data = {
       type: "vector",
       url: "pmtiles://" + divide_pmtiles,
     },
-  },
-  layers: [
+  };
+}
+
+const hydrofabric_layers = [
     {
       id: "flowpaths",
       type: "line",
@@ -97,20 +104,19 @@ const hydrofabric_map_data = {
       },
       filter: ["in", "divide_id", ""],
     }
-  ]
-};
+];
 const boostTextHalo = (layer) => ({ ...layer, paint: { ...layer.paint, "text-halo-width": 3, "text-halo-blur": 3 },});
 
 export function updateIncomingStyle(previousStyle, nextStyle) {
   return {
     sources: {
       ...nextStyle.sources,
-      ...hydrofabric_map_data.sources,
+      ...hydrofabricSources(),
     },
     layers: [
       // base layers, then our layers, then symbol layers (icons stripped, halos boosted)
       ...nextStyle.layers.filter((layer) => layer.type !== "symbol"),
-      ...hydrofabric_map_data.layers,
+      ...hydrofabric_layers,
       ...nextStyle.layers
         .filter((layer) => layer.type === "symbol" && !layer.paint?.["text-halo-width"] && !layer.layout?.["icon-image"]),
       ...nextStyle.layers

@@ -1,16 +1,17 @@
 import { updateIncomingStyle, checkPmtiles } from "./map_layers.js"
-
-let map = null;
-let catId = null;
-let nexId = null;
-let selected_id = null;
-let selected_num_upstreams = null;
-let outlet_id = null;
-let outlet_num_upstreams = null;
-let lastClickedDivide = null;
-const HIDDEN_FILTER = ["any"];
 import { handleHover, handleHoverLeave } from "./tooltip.js";
 
+let map = null;
+const HIDDEN_FILTER = ["any"];
+
+const state = {
+  catId: null,
+  nexId: null,
+  selectedId: null,
+  selectedNumUpstreams: null,
+  outletId: null,
+  outletNumUpstreams: null,
+};
 
 function queryFlowpath(flowpathID) {
   if (!map.loaded()) return;
@@ -42,10 +43,17 @@ function initMap() {
 }
 
 export function clearUpstreamHighlight() {
-  selected_id = null;
-  lastClickedDivide = null;
+  state.catId = null;
+  state.nexId = null;
+  state.selectedId = null;
+  state.selectedNumUpstreams = null;
+  state.outletId = null;
+  state.outletNumUpstreams = null;
+
   map.setFilter("selected-divides", HIDDEN_FILTER);
   map.setFilter("upstream-divides", HIDDEN_FILTER);
+  document.getElementById("input-catid").value = "";
+  document.getElementById("selection-info").style.display = "none";
 }
 
 export function onDivideClick(e) {
@@ -54,34 +62,29 @@ export function onDivideClick(e) {
   const upstreamId = divide.properties.upstream_id;
   const numUpstreams = divide.properties.num_upstreams;
 
-  catId = "cat-" + divide.id;
-  document.getElementById("input-catid").value = catId;
-  selected_id = divide.properties.upstream_id;
-  selected_num_upstreams = divide.properties.num_upstreams;
-  const uf = queryFlowpath(divide.properties.toid);
-  if (uf) {
-    outlet_id = uf.properties.upstream_id;
-    nexId = "nex-" + uf.id;
-    outlet_num_upstreams = uf.properties.num_upstreams;
-  } else {
-    outlet_id = null;
-    nexId = null;
-    outlet_num_upstreams = selected_num_upstreams;
-  }
-
   // Clicking the already-selected catchment toggles the highlight off.
-  if (
-    lastClickedDivide &&
-    lastClickedDivide.upstreamId === upstreamId
-  ) {
+  if (state.selectedId === upstreamId) {
     clearUpstreamHighlight();
     return;
   }
 
-  lastClickedDivide = { upstreamId, numUpstreams, lngLat: e.lngLat };
-  selected_id = upstreamId;
+  state.catId = "cat-" + divide.id;
+  state.selectedId = upstreamId;
+  state.selectedNumUpstreams = numUpstreams;
+  document.getElementById("input-catid").value = state.catId;
 
-  updateFilters()
+  const uf = queryFlowpath(divide.properties.toid);
+  if (uf) {
+    state.outletId = uf.properties.upstream_id;
+    state.nexId = "nex-" + uf.id;
+    state.outletNumUpstreams = uf.properties.num_upstreams;
+  } else {
+    state.outletId = null;
+    state.nexId = null;
+    state.outletNumUpstreams = numUpstreams;
+  }
+
+  updateFilters();
 
   if (!numUpstreams) {
     new maplibregl.Popup()
@@ -93,40 +96,28 @@ export function onDivideClick(e) {
 
 function updateFilters() {
   const includeOutlet = document.getElementById("chk-include-outlet").checked;
-  let upid, upstream_count, outlet;
-  if (includeOutlet) {
-    outlet = nexId;
-    upid = outlet_id;
-    upstream_count = outlet_num_upstreams;
-  } else {
-    outlet = catId;
-    upid = selected_id;
-    upstream_count = selected_num_upstreams;
-  }
+  const upid = includeOutlet ? state.outletId : state.selectedId;
+  const upstreamCount = includeOutlet ? state.outletNumUpstreams : state.selectedNumUpstreams;
+  const outlet = includeOutlet ? state.nexId : state.catId;
 
-  map.setFilter("selected-divides", ["==", "upstream_id", selected_id]);
+  map.setFilter("selected-divides", ["==", "upstream_id", state.selectedId]);
   map.setFilter("upstream-divides", [
     "all",
     [">", "upstream_id", upid],
-    ["<=", "upstream_id", upid + upstream_count],
-    ["!=", "upstream_id", selected_id],
+    ["<=", "upstream_id", upid + upstreamCount],
+    ["!=", "upstream_id", state.selectedId],
   ]);
 
   const info = document.getElementById("selection-info");
   info.style.display = "block";
-  info.innerHTML = `Outlet: <span class="outlet">${outlet}</span><br>Upstream: <span class="count">${upstream_count}</span> catchments`;
+  info.innerHTML = `Outlet: <span class="outlet">${outlet}</span><br>Upstream: <span class="count">${upstreamCount}</span> catchments`;
 }
 
 document.getElementById("chk-include-outlet").addEventListener("change", () => {
-  if (selected_id) updateFilters();
+  if (state.selectedId) updateFilters();
 });
 
-document.getElementById("btn-clear").addEventListener("click", () => {
-  map.setFilter("selected-divides", ["in", "id", ""]);
-  map.setFilter("upstream-divides", ["in", "id", ""]);
-  document.getElementById("input-catid").value = "";
-  document.getElementById("selection-info").style.display = "none";
-});
+document.getElementById("btn-clear").addEventListener("click", clearUpstreamHighlight);
 
 checkPmtiles().then(() => {
   initMap();
