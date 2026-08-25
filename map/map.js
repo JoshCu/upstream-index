@@ -85,13 +85,6 @@ export function onDivideClick(e) {
   }
 
   updateFilters();
-
-  if (!numUpstreams) {
-    new maplibregl.Popup()
-      .setLngLat(e.lngLat)
-      .setHTML("No upstreams")
-      .addTo(map);
-  }
 }
 
 function updateFilters() {
