@@ -1,3 +1,5 @@
+import { updateIncomingStyle, checkPmtiles } from "./map_layers.js"
+
 let map = null;
 let catId = null;
 let nexId = null;
@@ -5,10 +7,11 @@ let selected_id = null;
 let selected_num_upstreams = null;
 let outlet_id = null;
 let outlet_num_upstreams = null;
-var divide_pmtiles = "divides.pmtiles";
-var flowpath_pmtiles = "flowpaths.pmtiles";
-let backup_url = "https://communityhydrofabric.com/map/only_geometry/upstream_index/";
+let lastClickedDivide = null;
+const HIDDEN_FILTER = ["any"];
 // import { handleHover } from "./tooltip.js";
+let start_time = performance.now();
+let firstSymbolId = null;
 
 function queryFlowpath(flowpathID) {
   if (!map.loaded()) return;
@@ -19,157 +22,78 @@ function queryFlowpath(flowpathID) {
   return features[0];
 }
 
-async function checkPmtiles() {
-  divide_pmtiles = await checkResourceExists(divide_pmtiles) ? divide_pmtiles : backup_url + divide_pmtiles;
-  flowpath_pmtiles = await checkResourceExists(flowpath_pmtiles) ? flowpath_pmtiles : backup_url + flowpath_pmtiles;
-}
-
-async function checkResourceExists(url) {
-  try {
-    const response = await fetch(url, { method: 'HEAD' });
-    return response.ok; // True if status is 200-299
-  } catch (error) {
-    return false; // Network error or resource does not exist
-  }
-}
-
 function initMap() {
   const protocol = new pmtiles.Protocol({ metadata: true });
   maplibregl.addProtocol("pmtiles", protocol.tile);
   maplibregl.setWorkerCount(4);
   map = new maplibregl.Map({
     container: "map",
-    style: "https://tiles.openfreemap.org/styles/liberty",
     center: [-96, 40],
     zoom: 4,
+    validateStyle: false,
   });
-  map.once("styledata", () => {
-    const layers = map.getStyle().layers;
-    let firstSymbolId;
-    for (let i = 0; i < layers.length; i++) {
-      if (layers[i].type === "symbol") {
-        firstSymbolId = layers[i].id;
-        break;
-      }
-    }
-    map.addSource("divides", {
-      type: "vector",
-      url: "pmtiles://" + divide_pmtiles,
+  // alt_style = "https://communityhydrofabric.com/map/styles/light-base.json"
+
+  map.setStyle("https://tiles.openfreemap.org/styles/liberty", {transformStyle: updateIncomingStyle});
+  map.on("load", () => {
+    // map.on("mousemove", "divides", handleHover);
+    map.on("click", "divides", onDivideClick);
+    map.on("mouseenter", "divides", () => {
+      map.getCanvas().style.cursor = "pointer";
     });
-    map.addSource("flowpaths", {
-      type: "vector",
-      url: "pmtiles://" + flowpath_pmtiles,
-    });
-    map.addLayer(
-      {
-        id: "divides",
-        type: "fill",
-        source: "divides",
-        "source-layer": "divides",
-        paint: {
-          "fill-color": "rgba(0, 0, 0, 0)",
-          "fill-outline-color": [
-            "interpolate",
-            ["linear"],
-            ["zoom"],
-            6,
-            "rgba(1, 1, 1, 0)",
-            7,
-            "rgba(1, 1, 1, 0.5)",
-          ],
-        },
-      },
-      firstSymbolId,
-    );
-    map.addLayer(
-      {
-        id: "selected-divides",
-        type: "fill",
-        source: "divides",
-        "source-layer": "divides",
-        paint: {
-          "fill-color": "rgba(238, 51, 119, 0.316)",
-          "fill-outline-color": "rgba(238, 51, 119, 0.7)",
-        },
-        filter: ["in", "divide_id", ""],
-      },
-      firstSymbolId,
-    );
-    map.addLayer(
-      {
-        id: "upstream-divides",
-        type: "fill",
-        source: "divides",
-        "source-layer": "divides",
-        paint: {
-          "fill-color": "rgba(238, 119, 51, 0.278)",
-          "fill-outline-color": "rgba(238, 119, 51, 0.7)",
-        },
-        filter: ["in", "divide_id", ""],
-      },
-      firstSymbolId,
-    );
-    map.addLayer(
-      {
-        id: "flowpaths",
-        type: "line",
-        source: "flowpaths",
-        "source-layer": "flowpaths",
-        layout: {
-          "line-cap": "round",
-        },
-        paint: {
-          "line-width": [
-            "interpolate",
-            ["exponential", 1.6],
-            ["get", "order"],
-            1,
-            1,
-            8,
-            6,
-          ],
-          "line-color": [
-            "interpolate",
-            ["linear"],
-            ["zoom"],
-            1.3,
-            "rgba(0, 119, 187, 0)",
-            5,
-            "rgba(0, 119, 187, 1)",
-          ],
-        },
-      },
-      firstSymbolId,
-    );
-    map.on("load", () => {
-      // map.on("mousemove", "divides", handleHover);
-      map.on("click", "divides", (e) => {
-        if (e.target.loaded()) return handleClick(e);
-        e.target.once("load", () => handleClick(e));
-      });
-      map.on("mouseenter", "divides", () => {
-        map.getCanvas().style.cursor = "pointer";
-      });
-      map.on("mouseleave", "divides", () => {
-        map.getCanvas().style.cursor = "";
-      });
+    map.on("mouseleave", "divides", () => {
+      map.getCanvas().style.cursor = "";
     });
   });
 }
 
-function handleClick(e) {
-  if (e.features && e.features.length > 0) {
-    catId = "cat-" + e.features[0].id;
-    document.getElementById("input-catid").value = catId;
-    const f = e.features[0];
-    selected_id = f.properties.upstream_id;
-    selected_num_upstreams = f.properties.num_upstreams;
-    const uf = queryFlowpath(f.properties.toid);
-    if (!uf) return window.alert("unable to find outlet");
+export function clearUpstreamHighlight() {
+  selected_id = null;
+  lastClickedDivide = null;
+  map.setFilter("selected-divides", HIDDEN_FILTER);
+  map.setFilter("upstream-divides", HIDDEN_FILTER);
+}
+
+export function onDivideClick(e) {
+  if (!e.features?.length) return;
+  const divide = e.features[0];
+  const upstreamId = divide.properties.upstream_id;
+  const numUpstreams = divide.properties.num_upstreams;
+
+  catId = "cat-" + divide.id;
+  document.getElementById("input-catid").value = catId;
+  selected_id = divide.properties.upstream_id;
+  selected_num_upstreams = divide.properties.num_upstreams;
+  const uf = queryFlowpath(divide.properties.toid);
+  if (uf) {
     outlet_id = uf.properties.upstream_id;
     nexId = "nex-" + uf.id;
     outlet_num_upstreams = uf.properties.num_upstreams;
-    updateFilters();
+  } else {
+    outlet_id = null;
+    nexId = null;
+    outlet_num_upstreams = selected_num_upstreams;
+  }
+
+  // Clicking the already-selected catchment toggles the highlight off.
+  if (
+    lastClickedDivide &&
+    lastClickedDivide.upstreamId === upstreamId
+  ) {
+    clearUpstreamHighlight();
+    return;
+  }
+
+  lastClickedDivide = { upstreamId, numUpstreams, lngLat: e.lngLat };
+  selected_id = upstreamId;
+
+  updateFilters()
+
+  if (!numUpstreams) {
+    new maplibregl.Popup()
+      .setLngLat(e.lngLat)
+      .setHTML("No upstreams")
+      .addTo(map);
   }
 }
 

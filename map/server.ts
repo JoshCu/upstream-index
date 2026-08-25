@@ -1,4 +1,3 @@
-// server.ts
 import map from "./index.html";
 
 const dtiles = Bun.file("./tiles/divides.pmtiles");

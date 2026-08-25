@@ -47,6 +47,15 @@ COPY indexing/main.py .
 RUN python3 main.py
 
 FROM fix_order AS numeric_id
+RUN sqlite3 /raw_hf/conus_nextgen.gpkg <<'EOF'
+ALTER TABLE flowpaths ADD COLUMN widthcm REAL;
+UPDATE flowpaths
+SET widthcm =
+    (SELECT fa.TopWdthCC * 100
+     FROM "flowpath-attributes" fa WHERE fa.id = flowpaths.id)
+WHERE id IN (SELECT id FROM "flowpath-attributes");
+EOF
+
 # convert the id fields to integers to speed up tiles creation and reduce tile size to allow for more geometry per tile
 RUN sqlite3 /raw_hf/conus_nextgen.gpkg "UPDATE flowpaths SET divide_id = CAST(substr(divide_id,5) AS INTEGER), id = CAST(substr(id,4) AS INTEGER), toid = CAST(substr(toid,5) AS INTEGER);"
 RUN sqlite3 /raw_hf/conus_nextgen.gpkg "UPDATE divides SET divide_id = CAST(substr(divide_id,5) AS INTEGER), id = CAST(substr(id,4) AS INTEGER), toid = CAST(substr(toid,5) AS INTEGER);"
@@ -75,17 +84,20 @@ WHERE id IN (SELECT id FROM tmp);
 DROP TABLE tmp;
 EOF
 
-ARG ATTRS='-y order -y divide_id -y upstream_id -y num_upstreams -y toid'
-ARG TYPES='-T order:int -T divide_id:int -T upstream_id:int -T num_upstreams:int -T toid:int'
+# variables we want to keep, make sure to also add these to the sql query below
+# remove as many strings as possible and convert to int where possible e.g. float meters to int cm will be much smaller
+# The smaller we make these attributes, the more geometry we can keep in our tiles
+ARG ATTRS='-y order -y divide_id -y upstream_id -y num_upstreams -y toid -y widthcm -y '
+ARG TYPES='-T order:int -T divide_id:int -T upstream_id:int -T num_upstreams:int -T toid:int -T widthcm:int'
 WORKDIR /fgb/conus
 
 FROM numeric_id AS low_zoom
 RUN ogr2ogr /raw_hf/fixed.gpkg /raw_hf/conus_nextgen.gpkg \
   -dialect sqlite -nlt MULTILINESTRING\
-  -sql 'SELECT ST_LineMerge(ST_Union(geom)) AS geom, merge_group, MIN(upstream_id) AS upstream_id, MAX(num_upstreams) AS num_upstreams, toid, MAX("order") AS "order", id FROM flowpaths GROUP BY merge_group'
+  -sql 'SELECT ST_LineMerge(ST_Union(geom)) AS geom, merge_group, MIN(upstream_id) AS upstream_id, MAX(num_upstreams) AS num_upstreams, toid, MAX("order") AS "order", id, MAX(widthcm) AS widthcm FROM flowpaths GROUP BY merge_group'
 RUN ogr2ogr -s_srs EPSG:5070 -t_srs CRS:84 flowpaths.fgb /raw_hf/fixed.gpkg SELECT
 RUN tippecanoe -z6 -Z1 -o flowpaths-low.mbtiles \
-    --use-attribute-for-id=divide_id \
+    --use-attribute-for-id=id \
     -l flowpaths -X\
     ${ATTRS} \
     ${TYPES} \
@@ -115,7 +127,7 @@ FROM numeric_id AS conus_flowpaths
 RUN ogr2ogr -s_srs EPSG:5070 -t_srs CRS:84 flowpaths.fgb /raw_hf/conus_nextgen.gpkg flowpaths
 
 RUN tippecanoe -z10 -Z7 -o flowpaths-high.mbtiles \
-    --use-attribute-for-id=divide_id \
+    --use-attribute-for-id=id \
     -l flowpaths -X \
     ${ATTRS} \
     ${TYPES} \

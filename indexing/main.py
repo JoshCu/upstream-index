@@ -22,7 +22,7 @@ def get_network(hf_path: Path) -> (dict, set, dict, dict):
     order = dict()
     with sqlite3.connect(hf_path) as con:
         # pull order so we can break merge groups where Strahler order changes
-        sql = "select id, toid, \"order\" from flowpaths WHERE toid NOT LIKE 'tnx-%'"
+        sql = 'select id, toid, "order" from flowpaths'
         results = con.execute(sql).fetchall()
         for r in results:
             id = fix_sn(r[0][3:])
@@ -83,7 +83,7 @@ def get_upstream_indices(inv_network, depths, outlets, network) -> dict:
     return upstream_ids
 
 
-def get_merge_groups(upstream_ids, network, order) -> dict:
+def get_merge_groups(upstream_ids, network, order, max_group_size=10) -> dict:
     """Group flowpaths into pre-mergeable runs.
     Walk segments in upstream_id order. A run continues only while the next
     segment is the SAME order AND topologically attached to the current run
@@ -95,17 +95,19 @@ def get_merge_groups(upstream_ids, network, order) -> dict:
     group_count = 0
     prev_id = None
     prev_order = None
-
+    total_merged = 0
     for id in ordered:
         connected = prev_id is not None and network.get(id) == prev_id
         same_order = prev_id is not None and order.get(id) == prev_order
 
-        if not (connected and same_order):
+        if not (connected and same_order) or total_merged >= max_group_size:
+            total_merged = 0
             group_count += 1  # start a fresh group
 
         merge_group[id] = group_count
         prev_id = id
         prev_order = order.get(id)
+        total_merged += 1
 
     return merge_group
 
@@ -133,6 +135,7 @@ if __name__ == "__main__":
     hf = Path("/raw_hf/conus_nextgen.gpkg").expanduser()
     (network, not_headwaters, inv_network, order) = get_network(hf)
     outlets = set(network.values()) - set(network.keys())
+    headwaters = set(network.keys()) - set(network.values())
     depths = get_depth(network, inv_network)
     indices = get_upstream_indices(inv_network, depths, outlets, network)
     merge_groups = get_merge_groups(indices, network, order)
