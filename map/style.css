@@ -6,11 +6,8 @@
     --text: #e2e8f0;
     --text-dim: #94a3b8;
     --accent: #38bdf8;
-    --accent-dim: #0ea5e9;
     --selected: #ee3377;
     --upstream: #ee7733;
-    --success: #10b981;
-    --danger: #ef4444;
     --radius: 6px;
 }
 *,
@@ -36,23 +33,6 @@ body {
 }
 #map {
     flex: 1;
-}
-.map-label {
-    display: none;
-    position: absolute;
-    top: 8px;
-    z-index: 5;
-    padding: 4px 12px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--text-dim);
-    font-family: "JetBrains Mono", monospace;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    pointer-events: none;
 }
 #sidebar {
     position: absolute;
@@ -166,45 +146,6 @@ button {
 #selection-info .outlet {
     color: var(--selected);
     font-weight: 600;
-}
-#log-container {
-    flex: 1;
-    overflow-y: auto;
-    border-top: 1px solid var(--border);
-    padding: 12px 20px;
-    min-height: 80px;
-}
-#log {
-    font-family: "JetBrains Mono", monospace;
-    font-size: 11px;
-    line-height: 1.7;
-    color: var(--text-dim);
-    white-space: pre-wrap;
-    word-break: break-all;
-}
-#log .info {
-    color: var(--accent);
-}
-#log .success {
-    color: var(--success);
-}
-#log .error {
-    color: var(--danger);
-}
-#log .step {
-    color: var(--upstream);
-}
-#progress-bar {
-    height: 3px;
-    background: var(--surface2);
-    overflow: hidden;
-    flex-shrink: 0;
-}
-#progress-fill {
-    height: 100%;
-    width: 0%;
-    background: linear-gradient(90deg, var(--accent), #22d3ee);
-    transition: width 0.3s;
 }
 .checkbox-field {
     display: flex;
