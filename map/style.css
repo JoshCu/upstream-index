@@ -147,6 +147,10 @@ button {
     color: var(--selected);
     font-weight: 600;
 }
+#selection-info .range {
+    color: var(--accent);
+    font-weight: 600;
+}
 .checkbox-field {
     display: flex;
     align-items: center;

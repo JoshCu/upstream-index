@@ -103,7 +103,7 @@ function updateFilters() {
 
   const info = document.getElementById("selection-info");
   info.style.display = "block";
-  info.innerHTML = `Outlet: <span class="outlet">${outlet}</span><br>Upstream: <span class="count">${upstreamCount}</span> catchments`;
+  info.innerHTML = `Outlet: <span class="outlet">${outlet}</span><br>Upstream: <span class="count">${upstreamCount}</span> catchments<br>Upstream ID: <span class="range">${upid}</span><br>ID range: <span class="range">${upid}</span> - <span class="range">${upid + upstreamCount}</span>`;
 }
 
 document.getElementById("chk-include-outlet").addEventListener("change", () => {
