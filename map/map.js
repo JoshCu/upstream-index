@@ -72,14 +72,14 @@ export function onDivideClick(e) {
   state.selectedId = upstreamId;
   state.selectedNumUpstreams = numUpstreams;
   document.getElementById("input-catid").value = state.catId;
-
   const uf = queryFlowpath(divide.properties.toid);
   if (uf) {
     state.outletId = uf.properties.upstream_id;
     state.nexId = "nex-" + uf.id;
     state.outletNumUpstreams = uf.properties.num_upstreams;
-  } else {
-    state.outletId = null;
+  }
+  else {
+    state.outletId = upstreamId;
     state.nexId = null;
     state.outletNumUpstreams = numUpstreams;
   }
