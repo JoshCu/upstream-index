@@ -112,6 +112,32 @@ def get_merge_groups(upstream_ids, network, order, max_group_size=10) -> dict:
     return merge_group
 
 
+def get_merged_network(upstream_ids, network, merge_groups) -> (dict, dict):
+    """Collapse the network onto merge groups so low zoom tiles keep connectivity.
+    Each group is represented by its downstream-most member (lowest upstream_id,
+    the first one get_merge_groups visits), and its toid is the representative of
+    whichever group the representative's downstream segment landed in.
+    """
+    group_rep = dict()
+    for id in sorted(upstream_ids, key=lambda i: upstream_ids[i]):
+        group_rep.setdefault(merge_groups[id], id)
+
+    merged_id = dict()
+    merged_toid = dict()
+    for id, group in merge_groups.items():
+        if id not in network:
+            continue  # outlet nexuses are indexed but have no flowpath
+        rep = group_rep[group]
+        downstream = network[rep]
+        merged_id[id] = rep
+        # outlets flow to a nexus with no flowpath, keep the raw toid for those
+        if downstream in network:
+            merged_toid[id] = group_rep[merge_groups[downstream]]
+        else:
+            merged_toid[id] = downstream
+    return merged_id, merged_toid
+
+
 def get_num_upstreams(network) -> dict:
     indeg = defaultdict(int)
     for toid in network.values():
@@ -139,12 +165,13 @@ if __name__ == "__main__":
     depths = get_depth(network, inv_network)
     indices = get_upstream_indices(inv_network, depths, outlets, network)
     merge_groups = get_merge_groups(indices, network, order)
+    merged_id, merged_toid = get_merged_network(indices, network, merge_groups)
     num_upstreams = get_num_upstreams(network)
 
     csv_output = Path("upstream-idx.csv")
     with csv_output.open("w") as f:
-        f.write("id,upstream_id,num_upstreams,merge_group\n")
+        f.write("id,upstream_id,num_upstreams,merge_group,merged_id,merged_toid\n")
         for id, upstream_id in indices.items():
             f.write(
-                f"{int(id)}, {int(upstream_id)}, {num_upstreams[id]}, {int(merge_groups[id])}\n"
+                f"{int(id)}, {int(upstream_id)}, {num_upstreams[id]}, {int(merge_groups[id])}, {merged_id.get(id, '')}, {merged_toid.get(id, '')}\n"
             )

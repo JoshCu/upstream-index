@@ -68,12 +68,15 @@ CREATE INDEX idx_tmp_id ON tmp(id);
 ALTER TABLE flowpaths ADD COLUMN upstream_id INTEGER;
 ALTER TABLE flowpaths ADD COLUMN num_upstreams INTEGER;
 ALTER TABLE flowpaths ADD COLUMN merge_group TEXT;
+ALTER TABLE flowpaths ADD COLUMN merged_id INTEGER;
+ALTER TABLE flowpaths ADD COLUMN merged_toid INTEGER;
 ALTER TABLE divides ADD COLUMN upstream_id INTEGER;
 ALTER TABLE divides ADD COLUMN num_upstreams INTEGER;
 ALTER TABLE divides ADD COLUMN merge_group TEXT;
 UPDATE flowpaths
-SET (upstream_id, num_upstreams, merge_group) =
-    (SELECT CAST(t.upstream_id AS INTEGER), CAST(t.num_upstreams AS INTEGER), t.merge_group
+SET (upstream_id, num_upstreams, merge_group, merged_id, merged_toid) =
+    (SELECT CAST(t.upstream_id AS INTEGER), CAST(t.num_upstreams AS INTEGER), t.merge_group,
+            CAST(t.merged_id AS INTEGER), CAST(t.merged_toid AS INTEGER)
      FROM tmp t WHERE t.id = flowpaths.id)
 WHERE id IN (SELECT id FROM tmp);
 UPDATE divides
@@ -92,9 +95,12 @@ ARG TYPES='-T order:int -T divide_id:int -T upstream_id:int -T num_upstreams:int
 WORKDIR /fgb/conus
 
 FROM numeric_id AS low_zoom
+# merged_id/merged_toid are constant within a group: the downstream-most member and
+# the representative of the group it drains into, so toid always names a feature here.
+# Don't select bare id/toid, sqlite would take them from an arbitrary row of the group.
 RUN ogr2ogr /raw_hf/fixed.gpkg /raw_hf/conus_nextgen.gpkg \
   -dialect sqlite -nlt MULTILINESTRING\
-  -sql 'SELECT ST_LineMerge(ST_Union(geom)) AS geom, merge_group, MIN(upstream_id) AS upstream_id, MAX(num_upstreams) AS num_upstreams, toid, MAX("order") AS "order", id, MAX(widthcm) AS widthcm FROM flowpaths GROUP BY merge_group'
+  -sql 'SELECT ST_LineMerge(ST_Union(geom)) AS geom, merge_group, MIN(upstream_id) AS upstream_id, MAX(num_upstreams) AS num_upstreams, MIN(merged_toid) AS toid, MAX("order") AS "order", MIN(merged_id) AS id, MAX(widthcm) AS widthcm FROM flowpaths GROUP BY merge_group'
 RUN ogr2ogr -s_srs EPSG:5070 -t_srs CRS:84 flowpaths.fgb /raw_hf/fixed.gpkg SELECT
 RUN tippecanoe -z6 -Z1 -o flowpaths-low.mbtiles \
     --use-attribute-for-id=id \
